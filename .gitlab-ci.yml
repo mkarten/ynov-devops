@@ -1,0 +1,33 @@
+stages:
+  - build-image
+  - publish-image
+  - deploy-app
+
+build:
+  stage: build-image
+  script:
+    - docker rmi -f $DOCKER_HUB_USERNAME/eval-ynov-devops || true
+    - docker build -t eval-ynov-devops:$CI_COMMIT_SHORT_SHA .
+
+push:
+  stage: publish-image
+  services:
+  script:
+    - docker login -u $DOCKER_HUB_USERNAME -p $DOCKER_HUB_ACCESS_TOKEN
+    - docker tag eval-ynov-devops:$CI_COMMIT_SHORT_SHA $DOCKER_HUB_USERNAME/eval-ynov-devops:$CI_COMMIT_SHORT_SHA
+    - docker push $DOCKER_HUB_USERNAME/eval-ynov-devops:$CI_COMMIT_SHORT_SHA
+
+deploy:
+  stage: deploy-app
+  before_script:
+    - 'command -v ssh-agent >/dev/null || ( apk add --update openssh )' 
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan $VM_IPADDRESS >> ~/.ssh/known_hosts
+    - chmod 644 ~/.ssh/known_hosts
+  script:
+    - ssh $SSH_USER@$VM_IPADDRESS "sudo docker stop eval-ynov-devops || true"
+    - ssh $SSH_USER@$VM_IPADDRESS "sudo docker rm eval-ynov-devops || true"
+    - ssh $SSH_USER@$VM_IPADDRESS "sudo docker run -d --name eval-ynov-devops -p 80:5000 $DOCKER_HUB_USERNAME/eval-ynov-devops:$CI_COMMIT_SHORT_SHA"
